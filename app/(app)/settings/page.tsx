@@ -1,0 +1,294 @@
+import { addMerchantRuleAction, deleteMerchantRuleAction, reapplyMerchantRulesAction, updateMerchantRuleAction } from "@/app/actions";
+import { Card } from "@/components/ui/card";
+import { ConnectBankButton } from "@/components/settings/connect-bank-button";
+import { DemoResetButton } from "@/components/settings/demo-reset-button";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { categories } from "@/lib/domain/categories";
+import { formatCurrency } from "@/lib/domain/format";
+import { buildAccountSummaries } from "@/lib/domain/selectors";
+import { getAppSnapshot } from "@/lib/app-data";
+import { appEnv } from "@/lib/env";
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const snapshot = await getAppSnapshot();
+  const params = await searchParams;
+  const basiqStatus = String(params.basiq ?? "");
+  const status = String(params.status ?? "");
+  const ruleSearch = String(params.ruleSearch ?? "").trim().toLowerCase();
+  const liveConnection = snapshot.bankConnections.find((entry) => entry.provider === "basiq");
+  const accountSummaries = buildAccountSummaries(snapshot.accounts, snapshot.transactions, snapshot.household.cycleStartDay);
+  const filteredRules = snapshot.merchantRules
+    .filter((rule) => {
+      if (!ruleSearch) {
+        return true;
+      }
+
+      return `${rule.normalizedMerchant} ${rule.merchantPattern}`.toLowerCase().includes(ruleSearch);
+    })
+    .sort((a, b) => {
+      if (a.active !== b.active) {
+        return a.active ? -1 : 1;
+      }
+
+      return a.normalizedMerchant.localeCompare(b.normalizedMerchant);
+    });
+
+  const currentSearch = new URLSearchParams();
+
+  if (ruleSearch) {
+    currentSearch.set("ruleSearch", ruleSearch);
+  }
+
+  const settingsReturnTo = currentSearch.toString() ? `/settings?${currentSearch.toString()}` : "/settings";
+
+  return (
+    <div className="space-y-4 pb-24">
+      <div className="space-y-2 px-1">
+        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Settings & Mappings</p>
+        <h1 className="text-4xl font-bold text-slate-950">Rules, connections, and household defaults.</h1>
+      </div>
+
+      <StatusBanner status={status} />
+
+      <Card className="space-y-4">
+        <div>
+          <p className="text-lg font-semibold text-slate-950">Bank feeds</p>
+          <p className="mt-1 text-sm text-slate-600">Connect NAB and Macquarie via Basiq, or run in mock mode locally.</p>
+        </div>
+        {liveConnection ? (
+          <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-900">
+              {liveConnection.status === "active" ? "Basiq connected" : "Basiq connection pending"}
+            </p>
+            <p className="mt-1">
+              Household Basiq user: {liveConnection.basiqUserId}
+              {liveConnection.institutionName ? ` · ${liveConnection.institutionName}` : ""}
+            </p>
+            {liveConnection.lastSyncedAt ? (
+              <p className="mt-1 text-slate-500">Last synced: {new Date(liveConnection.lastSyncedAt).toLocaleString("en-AU")}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {basiqStatus ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            {basiqStatus === "connected"
+              ? "Basiq returned successfully. Run sync to import the connected accounts and transactions."
+              : `Basiq status: ${basiqStatus}`}
+          </div>
+        ) : null}
+        <ConnectBankButton />
+      </Card>
+
+      <Card className="space-y-4">
+        <div>
+          <p className="text-lg font-semibold text-slate-950">Add merchant rule</p>
+          <p className="mt-1 text-sm text-slate-600">Exact match wins first. Use split-merchant review for Amazon and Apple style merchants.</p>
+        </div>
+        <form action={addMerchantRuleAction} className="space-y-3">
+          <input type="hidden" name="returnTo" value={settingsReturnTo} />
+          <input
+            name="merchantPattern"
+            placeholder="Merchant name"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+            required
+          />
+          <select name="category" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm" defaultValue="review">
+            {categories.map((category) => (
+              <option key={category.slug} value={category.slug}>
+                {category.label}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" name="splitMerchant" className="size-4 rounded border-slate-300" />
+            Treat as split merchant
+          </label>
+          <button className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
+            Save rule
+          </button>
+        </form>
+        <form action={reapplyMerchantRulesAction}>
+          <input type="hidden" name="returnTo" value={settingsReturnTo} />
+          <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800">
+            Reapply rules to existing transactions
+          </button>
+        </form>
+      </Card>
+
+      <Card className="space-y-3">
+        <div className="space-y-2">
+          <div>
+            <p className="text-lg font-semibold text-slate-950">Merchant mappings</p>
+            <p className="mt-1 text-sm text-slate-600">Search, edit, deactivate, or delete rules inline.</p>
+          </div>
+          <form className="grid grid-cols-[1fr_auto] gap-2">
+            <input
+              name="ruleSearch"
+              placeholder="Search merchant rules"
+              defaultValue={ruleSearch}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            />
+            <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800">
+              Search
+            </button>
+          </form>
+        </div>
+        {filteredRules.length === 0 ? (
+          <div className="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-600">No rules match that search yet.</div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="min-w-[640px] w-full border-collapse bg-white text-xs">
+              <thead className="bg-slate-50 text-left text-[11px] text-slate-500">
+                <tr>
+                  <th className="px-2 py-2 font-semibold">Merchant</th>
+                  <th className="px-2 py-2 font-semibold">Category</th>
+                  <th className="px-2 py-2 font-semibold">Split</th>
+                  <th className="px-2 py-2 font-semibold">Active</th>
+                  <th className="px-2 py-2 font-semibold">Type</th>
+                  <th className="px-2 py-2 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRules.map((rule) => (
+                  <tr key={rule.id} className={rule.active ? "border-t border-slate-100" : "border-t border-slate-100 bg-slate-50/80"}>
+                    <td className="px-2 py-2 align-top">
+                      <form action={updateMerchantRuleAction} className="contents">
+                        <input type="hidden" name="ruleId" value={rule.id} />
+                        <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                        <input
+                          name="merchantPattern"
+                          defaultValue={rule.merchantPattern}
+                          className="w-full min-w-[150px] rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-900"
+                          required
+                        />
+                      </form>
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <form action={updateMerchantRuleAction} className="contents">
+                        <input type="hidden" name="ruleId" value={rule.id} />
+                        <input type="hidden" name="merchantPattern" value={rule.merchantPattern} />
+                        <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                        <select name="category" defaultValue={rule.category} className="w-full min-w-[130px] rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px]">
+                          {categories.map((category) => (
+                            <option key={category.slug} value={category.slug}>
+                              {category.label}
+                            </option>
+                          ))}
+                        </select>
+                      </form>
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <form action={updateMerchantRuleAction} className="contents">
+                        <input type="hidden" name="ruleId" value={rule.id} />
+                        <input type="hidden" name="merchantPattern" value={rule.merchantPattern} />
+                        <input type="hidden" name="category" value={rule.category} />
+                        <input type="hidden" name="active" value={rule.active ? "on" : ""} />
+                        <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input type="checkbox" name="splitMerchant" defaultChecked={rule.splitMerchant} className="size-4 rounded border-slate-300" />
+                          Yes
+                        </label>
+                      </form>
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <form action={updateMerchantRuleAction} className="contents">
+                        <input type="hidden" name="ruleId" value={rule.id} />
+                        <input type="hidden" name="merchantPattern" value={rule.merchantPattern} />
+                        <input type="hidden" name="category" value={rule.category} />
+                        {rule.splitMerchant ? <input type="hidden" name="splitMerchant" value="on" /> : null}
+                        <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input type="checkbox" name="active" defaultChecked={rule.active} className="size-4 rounded border-slate-300" />
+                          Live
+                        </label>
+                      </form>
+                    </td>
+                    <td className="px-2 py-2 align-top text-[11px] text-slate-600">
+                      {rule.matchType === "exact" ? "Exact" : "Contains"}
+                    </td>
+                    <td className="px-2 py-2 align-top">
+                      <div className="flex flex-col items-start gap-1.5">
+                        <form action={updateMerchantRuleAction}>
+                          <input type="hidden" name="ruleId" value={rule.id} />
+                          <input type="hidden" name="merchantPattern" value={rule.merchantPattern} />
+                          <input type="hidden" name="category" value={rule.category} />
+                          <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                          {rule.splitMerchant ? <input type="hidden" name="splitMerchant" value="on" /> : null}
+                          {rule.active ? <input type="hidden" name="active" value="on" /> : null}
+                          <button className="rounded-xl bg-slate-900 px-2.5 py-2 text-[11px] font-semibold text-white">Save</button>
+                        </form>
+                        <form action={deleteMerchantRuleAction}>
+                          <input type="hidden" name="ruleId" value={rule.id} />
+                          <input type="hidden" name="returnTo" value={settingsReturnTo} />
+                          <button className="text-[11px] font-semibold text-rose-700">Delete</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card className="space-y-3">
+        <p className="text-lg font-semibold text-slate-950">Accounts</p>
+        <div className="space-y-2">
+          {accountSummaries.map((summary) => (
+            <div key={summary.accountId} className="rounded-2xl bg-slate-50 px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-900">{summary.accountName}</p>
+                  <p className="text-sm text-slate-500">
+                    {summary.institutionName} · {summary.accountType === "credit_card" ? "Credit card" : summary.accountType}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-slate-900">{formatCurrency(summary.balance)}</p>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-2xl bg-white px-3 py-2">
+                  <p className="text-slate-500">Cycle spend</p>
+                  <p className="mt-1 font-semibold text-slate-900">{formatCurrency(summary.cycleSpend)}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2">
+                  <p className="text-slate-500">Rows</p>
+                  <p className="mt-1 font-semibold text-slate-900">{summary.transactionCount}</p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2">
+                  <p className="text-slate-500">Needs review</p>
+                  <p className="mt-1 font-semibold text-slate-900">{summary.reviewCount}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="space-y-3">
+        <p className="text-lg font-semibold text-slate-950">Household</p>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <p className="text-slate-500">Cycle target</p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(snapshot.budget.cycleTarget)}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-3">
+            <p className="text-slate-500">Mode</p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">{appEnv.mockMode ? "Demo" : "Live"}</p>
+          </div>
+        </div>
+      </Card>
+
+      {appEnv.mockMode ? (
+        <Card className="space-y-3">
+          <p className="text-lg font-semibold text-slate-950">Demo tools</p>
+          <DemoResetButton />
+        </Card>
+      ) : null}
+    </div>
+  );
+}

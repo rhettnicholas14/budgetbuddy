@@ -1,0 +1,6 @@
+date,merchant,description,amount,direction,account
+2026-04-02,Woolworths Camberwell,Woolworths Camberwell,-168.24,debit,NAB Everyday
+2026-04-01,Uber Eats,Uber Eats Order,-42.50,debit,NAB Everyday
+2026-03-30,Salary Payment,Salary Payment,6400,credit,Macquarie Offset
+2026-03-28,Apple.com/Bill,Apple one-off purchase,-19.99,debit,NAB Rewards CC
+2026-03-27,Qantas,Qantas Flight,-820.00,debit,NAB Rewards CC
