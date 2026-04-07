@@ -11,11 +11,14 @@ export async function POST(request: Request) {
     }
 
     const text = await file.text();
-    const imported = await importCsvText(file.name, text);
+    const result = await importCsvText(file.name, text);
 
     return NextResponse.json({
-      message: `Imported ${imported.length} transaction${imported.length === 1 ? "" : "s"}.`,
-      count: imported.length,
+      message: result.message,
+      count: result.insertedCount,
+      alreadyLoadedCount: result.alreadyLoadedCount,
+      skippedOlderThanWatermarkCount: result.skippedOlderThanWatermarkCount,
+      totalRows: result.totalRows,
     });
   } catch (error) {
     return NextResponse.json(

@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import Papa from "papaparse";
-import { format, parse } from "date-fns";
+import { format, parse, subDays } from "date-fns";
 import { getCycleLabelFromDate } from "@/lib/domain/cycle";
 import { normalizeMerchant } from "@/lib/domain/merchant-normalization";
 import { resolveTransactionCategory } from "@/lib/domain/categorization";
@@ -38,9 +39,15 @@ export type ParsedImportRow = {
   descriptionRaw: string;
   amount: number;
   direction: "debit" | "credit";
+  authorizationStatus: "pending" | "posted" | "unknown";
+  pendingStatus?: "none" | "matched" | "confirmed_new" | "ignored_duplicate";
+  pendingMatchTransactionId?: string | null;
   sourceAccountName: string;
   sourceAccountType: "transaction" | "credit_card" | "savings";
 };
+
+export const CSV_IMPORT_OVERLAP_DAYS = 7;
+export const CSV_SEMANTIC_DEDUPE_WINDOW_DAYS = 3;
 
 export function parseCsvFile(filename: string, csvText: string): ParsedImportRow[] {
   if (csvText.startsWith("Date,Amount,Account Number")) {
@@ -102,12 +109,15 @@ export function buildTransactionPayload({
       description_raw: row.descriptionRaw,
       amount: row.amount,
       direction: row.direction,
+      authorization_status: row.authorizationStatus,
+      pending_status: row.pendingStatus ?? "none",
+      pending_match_transaction_id: row.pendingMatchTransactionId ?? null,
       source_account_name: row.sourceAccountName,
       source_account_type: row.sourceAccountType,
       auto_category: resolved.autoCategory,
       override_category: null,
       final_category: resolved.finalCategory,
-      review_status: resolved.needsReview ? "needs_review" : "auto_categorized",
+      review_status: resolved.needsReview || row.pendingStatus === "matched" ? "needs_review" : "auto_categorized",
       notes: null,
       is_reimbursement: false,
       cycle_label: getCycleLabelFromDate(row.date, cycleStartDay),
@@ -148,13 +158,16 @@ export function buildMockTransactions({
       descriptionRaw: row.descriptionRaw,
       amount: row.amount,
       direction: row.direction,
+      authorizationStatus: row.authorizationStatus,
+      pendingStatus: row.pendingStatus ?? "none",
+      pendingMatchTransactionId: row.pendingMatchTransactionId ?? null,
       sourceAccountName: row.sourceAccountName,
       sourceAccountType: row.sourceAccountType,
       autoCategory: resolved.autoCategory,
       overrideCategory: null,
       finalCategory: resolved.finalCategory,
-      reviewStatus: resolved.needsReview ? "needs_review" : "auto_categorized",
-      needsReview: resolved.needsReview,
+      reviewStatus: resolved.needsReview || row.pendingStatus === "matched" ? "needs_review" : "auto_categorized",
+      needsReview: resolved.needsReview || row.pendingStatus === "matched",
       notes: null,
       isReimbursement: false,
       cycleLabel: getCycleLabelFromDate(row.date, cycleStartDay),
@@ -162,27 +175,142 @@ export function buildMockTransactions({
   });
 }
 
+export function filterRowsForIncrementalImport({
+  rows,
+  accountWatermarks,
+  overlapDays,
+}: {
+  rows: ParsedImportRow[];
+  accountWatermarks: Map<string, string>;
+  overlapDays: number;
+}) {
+  const rowsToImport: ParsedImportRow[] = [];
+  let skippedOlderThanWatermarkCount = 0;
+
+  for (const row of rows) {
+    const lastImportedDate = accountWatermarks.get(row.accountKey);
+
+    if (!lastImportedDate) {
+      rowsToImport.push(row);
+      continue;
+    }
+
+    const cutoffDate = format(subDays(new Date(`${lastImportedDate}T00:00:00`), overlapDays), "yyyy-MM-dd");
+
+    if (row.date < cutoffDate) {
+      skippedOlderThanWatermarkCount += 1;
+      continue;
+    }
+
+    rowsToImport.push(row);
+  }
+
+  return { rowsToImport, skippedOlderThanWatermarkCount };
+}
+
+export function buildStableProviderTransactionId(row: {
+  accountKey: string;
+  accountType: string;
+  date: string;
+  postedAt: string;
+  merchantRaw: string;
+  descriptionRaw: string;
+  amount: number;
+  direction: "debit" | "credit";
+}) {
+  const merchant = normalizeMerchant(row.merchantRaw);
+  const description = normalizeDedupText(row.descriptionRaw);
+
+  const fingerprint = [
+    "csv",
+    row.accountKey.trim().toLowerCase(),
+    row.accountType,
+    row.date,
+    row.postedAt || row.date,
+    row.direction,
+    row.amount.toFixed(2),
+    merchant.toLowerCase(),
+    description,
+  ].join("|");
+
+  return `csv:${createHash("sha256").update(fingerprint).digest("hex").slice(0, 32)}`;
+}
+
+export function buildSemanticDuplicateKey(row: {
+  accountKey: string;
+  merchantRaw: string;
+  amount: number;
+  direction: "debit" | "credit";
+}) {
+  return [
+    row.accountKey.trim().toLowerCase(),
+    normalizeMerchant(row.merchantRaw).toLowerCase(),
+    row.direction,
+    row.amount.toFixed(2),
+  ].join("|");
+}
+
+export function classifyAuthorizationStatus(input: {
+  transactionType?: string;
+  descriptionRaw?: string;
+  processedOn?: string;
+  date?: string;
+}) {
+  const type = `${input.transactionType ?? ""} ${input.descriptionRaw ?? ""}`.toLowerCase();
+
+  if (/\bpending\b|\bauthori[sz]ed\b/.test(type)) {
+    return "pending" as const;
+  }
+
+  if (input.processedOn && input.date && input.processedOn !== input.date) {
+    return "posted" as const;
+  }
+
+  return "unknown" as const;
+}
+
 function parseCardCsv(filename: string, content: string): ParsedImportRow[] {
   const parsed = Papa.parse<CardCsvRow>(content, { header: true, skipEmptyLines: true });
 
-  return parsed.data.map((row, index) => {
+  return parsed.data.map((row) => {
     const date = formatDate(row.Date, "dd MMM yy");
     const amount = Math.abs(Number(row.Amount));
     const merchantRaw = row["Merchant Name"]?.trim() || deriveMerchantFromDetails(row["Transaction Details"]);
     const accountName = row["Account Number"]?.trim() || "Card";
+    const descriptionRaw = row["Transaction Details"]?.trim() || merchantRaw;
+    const postedAt = row["Processed On"] ? formatDate(row["Processed On"], "dd MMM yy") : date;
+    const direction = Number(row.Amount) < 0 ? "debit" : "credit";
+    const accountKey = `csv:${accountName}`;
 
     return {
-      providerTransactionId: `csv:${filename}:${index}:${row.Date}:${row.Amount}:${row["Transaction Details"]}`,
-      accountKey: `csv:${accountName}`,
+      providerTransactionId: buildStableProviderTransactionId({
+        accountKey,
+        accountType: "credit_card",
+        date,
+        postedAt,
+        merchantRaw,
+        descriptionRaw,
+        amount,
+        direction,
+      }),
+      accountKey,
       accountName,
       accountType: "credit_card",
       institutionName: inferInstitution(accountName, row["Transaction Details"]),
       date,
-      postedAt: row["Processed On"] ? formatDate(row["Processed On"], "dd MMM yy") : date,
+      postedAt,
       merchantRaw,
-      descriptionRaw: row["Transaction Details"]?.trim() || merchantRaw,
+      descriptionRaw,
       amount,
-      direction: Number(row.Amount) < 0 ? "debit" : "credit",
+      direction,
+      authorizationStatus: classifyAuthorizationStatus({
+        transactionType: row["Transaction Type"],
+        descriptionRaw,
+        processedOn: postedAt,
+        date,
+      }),
+      pendingStatus: "none",
+      pendingMatchTransactionId: null,
       sourceAccountName: accountName,
       sourceAccountType: "credit_card",
     };
@@ -192,7 +320,7 @@ function parseCardCsv(filename: string, content: string): ParsedImportRow[] {
 function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
   const parsed = Papa.parse<OffsetCsvRow>(content, { header: true, skipEmptyLines: true });
 
-  return parsed.data.map((row, index) => {
+  return parsed.data.map((row) => {
     const debit = row.Debit ? Number(row.Debit) : 0;
     const credit = row.Credit ? Number(row.Credit) : 0;
     const amount = Math.abs(debit || credit);
@@ -201,10 +329,20 @@ function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
     const merchantRaw = deriveMerchantFromOffsetRow(row);
     const accountName = row.Account?.trim() || "Offset";
     const date = formatDate(row["Transaction Date"], "dd MMM yyyy");
+    const accountKey = `csv:${accountName}`;
 
     return {
-      providerTransactionId: `csv:${filename}:${index}:${row["Transaction Date"]}:${debit}:${credit}:${descriptionRaw}`,
-      accountKey: `csv:${accountName}`,
+      providerTransactionId: buildStableProviderTransactionId({
+        accountKey,
+        accountType: "savings",
+        date,
+        postedAt: date,
+        merchantRaw,
+        descriptionRaw,
+        amount,
+        direction,
+      }),
+      accountKey,
       accountName,
       accountType: "savings",
       institutionName: inferInstitution(accountName, descriptionRaw),
@@ -214,6 +352,9 @@ function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
       descriptionRaw,
       amount,
       direction,
+      authorizationStatus: "unknown",
+      pendingStatus: "none",
+      pendingMatchTransactionId: null,
       sourceAccountName: accountName,
       sourceAccountType: "savings",
     };
@@ -233,19 +374,39 @@ function parseGenericCsv(filename: string, content: string): ParsedImportRow[] {
         : "debit";
     const date = normalizeDate(row.date ?? row.posted_at ?? row.Date ?? row["Transaction Date"] ?? "");
     const accountName = row.account ?? row.Account ?? "CSV Import";
+    const postedAt = date || format(new Date(), "yyyy-MM-dd");
+    const descriptionRaw = row.description ?? row.Details ?? merchantRaw;
+    const accountKey = `csv:${accountName}`;
 
     return {
-      providerTransactionId: `csv:${filename}:${index}:${date}:${merchantRaw}:${amount}`,
-      accountKey: `csv:${accountName}`,
+      providerTransactionId: buildStableProviderTransactionId({
+        accountKey,
+        accountType: "transaction",
+        date: date || postedAt,
+        postedAt,
+        merchantRaw,
+        descriptionRaw,
+        amount,
+        direction,
+      }),
+      accountKey,
       accountName,
       accountType: "transaction",
       institutionName: inferInstitution(accountName, merchantRaw),
-      date: date || format(new Date(), "yyyy-MM-dd"),
-      postedAt: date || format(new Date(), "yyyy-MM-dd"),
+      date: date || postedAt,
+      postedAt,
       merchantRaw,
-      descriptionRaw: row.description ?? row.Details ?? merchantRaw,
+      descriptionRaw,
       amount,
       direction,
+      authorizationStatus: classifyAuthorizationStatus({
+        transactionType: row.status ?? row.Status ?? row["Transaction Type"],
+        descriptionRaw,
+        processedOn: postedAt,
+        date: date || postedAt,
+      }),
+      pendingStatus: "none",
+      pendingMatchTransactionId: null,
       sourceAccountName: accountName,
       sourceAccountType: "transaction",
     };
@@ -303,4 +464,13 @@ function normalizeDate(value: string) {
   }
 
   return "";
+}
+
+function normalizeDedupText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\d+/g, " ")
+    .replace(/[^\w\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

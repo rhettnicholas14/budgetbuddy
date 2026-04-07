@@ -221,12 +221,14 @@ async function ensureBasiqUser(householdId: string, fullName: string, email: str
   }
 
   const [firstName, ...rest] = fullName.split(" ").filter(Boolean);
+  const mobile = appEnv.basiqMobile.trim();
   const createdUser = await basiqRequest<BasiqUserResponse>("/users", {
     method: "post",
     body: JSON.stringify({
       email,
       firstName: firstName ?? "Household",
       lastName: rest.join(" ") || "User",
+      ...(mobile ? { mobile } : {}),
     }),
   });
 

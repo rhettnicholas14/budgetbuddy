@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   deleteMerchantRule,
   reapplyMerchantRulesToTransactions,
+  resolvePendingTransaction,
   saveMerchantRule,
   saveTransactionCategory,
   updateMerchantRule,
@@ -137,5 +138,22 @@ export async function applyAiSuggestionAction(formData: FormData) {
 
   if (returnTo.startsWith("/")) {
     redirect(withStatus(returnTo, "saved"));
+  }
+}
+
+export async function resolvePendingTransactionAction(formData: FormData) {
+  const transactionId = String(formData.get("transactionId") ?? "");
+  const resolution = String(formData.get("resolution") ?? "") as "confirm_new" | "mark_duplicate";
+  const returnTo = String(formData.get("returnTo") ?? "");
+
+  await resolvePendingTransaction(transactionId, resolution);
+  revalidatePath("/dashboard");
+  revalidatePath("/transactions");
+  revalidatePath("/review");
+  revalidatePath("/trends");
+  revalidatePath("/weekly");
+
+  if (returnTo.startsWith("/")) {
+    redirect(withStatus(returnTo, resolution === "confirm_new" ? "pending-confirmed" : "pending-ignored"));
   }
 }

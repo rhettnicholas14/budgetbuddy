@@ -65,6 +65,26 @@ export default async function TransactionsPage({
   });
 
   const grouped = groupTransactionsByAccount(snapshot.accounts, filtered).filter((group) => group.transactions.length > 0);
+  const csvImportWatermarks = snapshot.transactions
+    .filter((transaction) => transaction.provider === "csv")
+    .reduce<Array<{ accountName: string; lastImportedDate: string }>>((accumulator, transaction) => {
+      const existing = accumulator.find((entry) => entry.accountName === transaction.sourceAccountName);
+
+      if (!existing) {
+        accumulator.push({
+          accountName: transaction.sourceAccountName,
+          lastImportedDate: transaction.date,
+        });
+        return accumulator;
+      }
+
+      if (transaction.date > existing.lastImportedDate) {
+        existing.lastImportedDate = transaction.date;
+      }
+
+      return accumulator;
+    }, [])
+    .sort((left, right) => left.accountName.localeCompare(right.accountName));
 
   return (
     <div className="space-y-4 pb-24">
@@ -154,7 +174,7 @@ export default async function TransactionsPage({
       </Card>
 
       <Card>
-        <CsvUpload />
+        <CsvUpload watermarks={csvImportWatermarks} />
       </Card>
 
       <div className="space-y-4">
@@ -212,6 +232,11 @@ export default async function TransactionsPage({
                           {transaction.overrideCategory ? (
                             <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-800">
                               Manual
+                            </span>
+                          ) : null}
+                          {transaction.pendingStatus === "matched" ? (
+                            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
+                              Pending match
                             </span>
                           ) : null}
                         </div>

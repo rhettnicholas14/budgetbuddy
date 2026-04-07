@@ -8,12 +8,13 @@ import {
   editMerchantRule,
   removeMerchantRule,
   reapplyMerchantRulesToTransactions as reapplyMerchantRulesToTransactionsMock,
+  resolvePendingTransaction as resolvePendingTransactionMock,
   saveAiSuggestions,
   updateTransactionCategory,
 } from "@/lib/mock/store";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveTransactionCategory } from "@/lib/domain/categorization";
-import type { AiSuggestion, AppSnapshot, BankConnection, CategoryKind, MerchantRule, Transaction } from "@/lib/domain/types";
+import type { AiSuggestion, AppSnapshot, BankConnection, CategoryKind, MerchantRule, PendingStatus, Transaction } from "@/lib/domain/types";
 
 type HouseholdMemberRow = {
   id: string;
@@ -87,6 +88,9 @@ type TransactionRow = {
   description_raw: string;
   amount: number | string;
   direction: Transaction["direction"];
+  authorization_status?: Transaction["authorizationStatus"];
+  pending_status?: PendingStatus;
+  pending_match_transaction_id?: string | null;
   source_account_name: string;
   source_account_type: Transaction["sourceAccountType"];
   auto_category: Transaction["autoCategory"];
@@ -387,6 +391,31 @@ export async function reapplyMerchantRulesToTransactions() {
   return results.length;
 }
 
+export async function resolvePendingTransaction(transactionId: string, resolution: "confirm_new" | "mark_duplicate") {
+  if (appEnv.mockMode || !hasSupabaseEnv()) {
+    return resolvePendingTransactionMock(transactionId, resolution);
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("transactions")
+    .update({
+      pending_status: resolution === "confirm_new" ? "confirmed_new" : "ignored_duplicate",
+      ...(resolution === "confirm_new" ? { pending_match_transaction_id: null } : {}),
+      review_status: "reviewed",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", transactionId)
+    .select("*")
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to resolve pending transaction.");
+  }
+
+  return mapTransaction(data);
+}
+
 export async function persistAiSuggestions(suggestions: AiSuggestion[]) {
   if (suggestions.length === 0) {
     return null;
@@ -463,6 +492,9 @@ function mapTransaction(entry: TransactionRow): Transaction {
     descriptionRaw: entry.description_raw,
     amount: Number(entry.amount),
     direction: entry.direction,
+    authorizationStatus: entry.authorization_status ?? "unknown",
+    pendingStatus: entry.pending_status ?? "none",
+    pendingMatchTransactionId: entry.pending_match_transaction_id ?? null,
     sourceAccountName: entry.source_account_name,
     sourceAccountType: entry.source_account_type,
     autoCategory: entry.auto_category,

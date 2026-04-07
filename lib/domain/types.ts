@@ -21,6 +21,8 @@ export type SyncStatus = "pending" | "success" | "failed";
 export type SourceType = "bank_feed" | "csv" | "manual";
 export type AccountType = "transaction" | "credit_card" | "savings" | "loan";
 export type Direction = "debit" | "credit";
+export type AuthorizationStatus = "pending" | "posted" | "unknown";
+export type PendingStatus = "none" | "matched" | "confirmed_new" | "ignored_duplicate";
 
 export type Category = {
   id: string;
@@ -96,6 +98,9 @@ export type Transaction = {
   descriptionRaw: string;
   amount: number;
   direction: Direction;
+  authorizationStatus: AuthorizationStatus;
+  pendingStatus: PendingStatus;
+  pendingMatchTransactionId: string | null;
   sourceAccountName: string;
   sourceAccountType: AccountType;
   autoCategory: CategoryKind | null;

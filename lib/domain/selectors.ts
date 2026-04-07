@@ -17,11 +17,13 @@ import type {
 export function filterTransactionsForCycle(transactions: Transaction[], cycleStartDay = 22, now = new Date()) {
   const cycle = getCycleWindow(now, cycleStartDay);
 
-  return transactions.filter((transaction) =>
-    isWithinInterval(parseISO(transaction.date), {
-      start: cycle.start,
-      end: cycle.end,
-    }),
+  return transactions.filter(
+    (transaction) =>
+      countsTowardSpend(transaction) &&
+      isWithinInterval(parseISO(transaction.date), {
+        start: cycle.start,
+        end: cycle.end,
+      }),
   );
 }
 
@@ -253,5 +255,9 @@ export function sumByCategory(transactions: Transaction[], categories: string[])
 }
 
 function debitAmount(transaction: Transaction) {
-  return transaction.direction === "debit" ? Math.abs(transaction.amount) : 0;
+  return countsTowardSpend(transaction) && transaction.direction === "debit" ? Math.abs(transaction.amount) : 0;
+}
+
+function countsTowardSpend(transaction: Transaction) {
+  return !["matched", "ignored_duplicate"].includes(transaction.pendingStatus);
 }

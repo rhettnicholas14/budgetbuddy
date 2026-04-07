@@ -1,5 +1,10 @@
 import { format } from "date-fns";
-import { addMerchantRuleAction, applyAiSuggestionAction, updateTransactionCategoryAction } from "@/app/actions";
+import {
+  addMerchantRuleAction,
+  applyAiSuggestionAction,
+  resolvePendingTransactionAction,
+  updateTransactionCategoryAction,
+} from "@/app/actions";
 import { Card } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { StatusBanner } from "@/components/ui/status-banner";
@@ -20,6 +25,7 @@ export default async function ReviewPage({
   const aiSuggestions = await getAiSuggestions(snapshot, queue.slice(0, 12));
   await persistAiSuggestions(aiSuggestions);
   const suggestionMap = new Map(aiSuggestions.map((suggestion) => [suggestion.transactionId, suggestion]));
+  const transactionMap = new Map(snapshot.transactions.map((transaction) => [transaction.id, transaction]));
 
   return (
     <div className="space-y-4 pb-24">
@@ -41,9 +47,47 @@ export default async function ReviewPage({
       <div className="space-y-3">
         {queue.map((transaction) => {
           const suggestion = suggestionMap.get(transaction.id);
+          const pendingMatch = transaction.pendingMatchTransactionId
+            ? transactionMap.get(transaction.pendingMatchTransactionId)
+            : null;
 
           return (
           <Card key={transaction.id} className="space-y-4">
+            {transaction.pendingStatus === "matched" && pendingMatch ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-rose-950">Possible pending duplicate</p>
+                    <p className="mt-1 text-sm text-rose-900/80">
+                      This looks like a pending or authorized version of an existing transaction.
+                    </p>
+                    <p className="mt-2 text-xs text-rose-900/70">
+                      Match: {pendingMatch.merchantRaw} · {format(new Date(pendingMatch.date), "EEE d MMM")} ·{" "}
+                      {formatPreciseCurrency(pendingMatch.amount)}
+                    </p>
+                  </div>
+                  <Pill tone="warning">Pending match</Pill>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <form action={resolvePendingTransactionAction}>
+                    <input type="hidden" name="transactionId" value={transaction.id} />
+                    <input type="hidden" name="resolution" value="mark_duplicate" />
+                    <input type="hidden" name="returnTo" value="/review" />
+                    <button className="w-full rounded-2xl bg-rose-900 px-4 py-2 text-sm font-semibold text-white">
+                      Mark duplicate
+                    </button>
+                  </form>
+                  <form action={resolvePendingTransactionAction}>
+                    <input type="hidden" name="transactionId" value={transaction.id} />
+                    <input type="hidden" name="resolution" value="confirm_new" />
+                    <input type="hidden" name="returnTo" value="/review" />
+                    <button className="w-full rounded-2xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-900">
+                      Keep as new
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : null}
             {suggestion ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
                 <div className="flex items-start justify-between gap-3">

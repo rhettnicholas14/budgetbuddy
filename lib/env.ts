@@ -13,6 +13,7 @@ export const appEnv = {
   openAiModel: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
   basiqApiKey: process.env.BASIQ_API_KEY ?? "",
   basiqApiUrl: process.env.BASIQ_API_URL ?? "https://au-api.basiq.io",
+  basiqMobile: process.env.BASIQ_MOBILE ?? "",
   basiqWebhookSecret: process.env.BASIQ_WEBHOOK_SECRET ?? "",
   mockMode: process.env.NEXT_PUBLIC_APP_MODE !== "live",
 };

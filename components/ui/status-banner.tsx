@@ -34,6 +34,18 @@ export function StatusBanner({ status }: { status: string }) {
               body: "The merchant mapping was removed.",
               className: "border-emerald-200 bg-emerald-50 text-emerald-900",
             }
+          : status === "pending-confirmed"
+            ? {
+                title: "Marked as new",
+                body: "This pending transaction will now count as its own transaction.",
+                className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+              }
+            : status === "pending-ignored"
+              ? {
+                  title: "Marked as duplicate",
+                  body: "This matched pending transaction will stay out of your totals.",
+                  className: "border-emerald-200 bg-emerald-50 text-emerald-900",
+                }
         : {
             title: "Updated",
             body: "Your latest change was applied.",

@@ -57,7 +57,7 @@ export function getWeekLabel(date = new Date(), mode: WeeklyMode = "calendar", c
 export function getWeeklyTotals(transactions: Transaction[], weekStart: Date, weekEnd: Date) {
   const inWeek = transactions.filter((transaction) => {
     const txDate = startOfDay(new Date(transaction.date));
-    return !isBefore(txDate, weekStart) && !isAfter(txDate, weekEnd);
+    return countsTowardSpend(transaction) && !isBefore(txDate, weekStart) && !isAfter(txDate, weekEnd);
   });
 
   const categoryTotal = (category: Transaction["finalCategory"]) =>
@@ -124,5 +124,9 @@ const IGNORED_WEEKLY_TOTAL_CATEGORIES = new Set([
 ]);
 
 function debitAmount(transaction: Transaction) {
-  return transaction.direction === "debit" ? Math.abs(transaction.amount) : 0;
+  return countsTowardSpend(transaction) && transaction.direction === "debit" ? Math.abs(transaction.amount) : 0;
+}
+
+function countsTowardSpend(transaction: Transaction) {
+  return !["matched", "ignored_duplicate"].includes(transaction.pendingStatus);
 }

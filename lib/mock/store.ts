@@ -2,6 +2,7 @@ import { createDemoSnapshot, seededMerchantRules } from "@/lib/mock/data";
 import { getCycleLabelFromDate } from "@/lib/domain/cycle";
 import { resolveTransactionCategory } from "@/lib/domain/categorization";
 import { normalizeMerchant } from "@/lib/domain/merchant-normalization";
+import { CSV_IMPORT_OVERLAP_DAYS, filterRowsForIncrementalImport, type ParsedImportRow } from "@/lib/csv/shared";
 import type { AiSuggestion, AppSnapshot, CategoryKind, MerchantRule, Transaction } from "@/lib/domain/types";
 
 declare global {
@@ -163,6 +164,9 @@ export function importTransactions(transactions: Array<Partial<Transaction>>) {
       descriptionRaw: transaction.descriptionRaw ?? merchantRaw,
       amount,
       direction,
+      authorizationStatus: transaction.authorizationStatus ?? "unknown",
+      pendingStatus: transaction.pendingStatus ?? "none",
+      pendingMatchTransactionId: transaction.pendingMatchTransactionId ?? null,
       sourceAccountName: transaction.sourceAccountName ?? "CSV Statement",
       sourceAccountType: transaction.sourceAccountType ?? "transaction",
       autoCategory: resolved.autoCategory,
@@ -183,6 +187,70 @@ export function importTransactions(transactions: Array<Partial<Transaction>>) {
 
   state.transactions.unshift(...normalized);
   return structuredClone(normalized);
+}
+
+export function importCsvTransactionsIncrementally(rows: ParsedImportRow[]) {
+  const state = getState();
+  const accountWatermarks = new Map<string, string>();
+
+  for (const transaction of state.transactions) {
+    if (transaction.provider !== "csv") continue;
+
+    const key = `csv:${transaction.sourceAccountName}`;
+    const current = accountWatermarks.get(key);
+    if (!current || transaction.date > current) {
+      accountWatermarks.set(key, transaction.date);
+    }
+  }
+
+  const { rowsToImport, skippedOlderThanWatermarkCount } = filterRowsForIncrementalImport({
+    rows,
+    accountWatermarks,
+    overlapDays: CSV_IMPORT_OVERLAP_DAYS,
+  });
+
+  const existingKeys = new Set(state.transactions.map((transaction) => `${transaction.provider}|${transaction.providerTransactionId}`));
+  const uniqueRows = rowsToImport.filter((row) => !existingKeys.has(`csv|${row.providerTransactionId}`));
+  const imported = importTransactions(
+    uniqueRows.map((row) => ({
+      accountId: state.accounts.find((account) => account.sourceAccountName === row.sourceAccountName)?.id ?? state.accounts[0]?.id ?? "acct_1",
+      providerTransactionId: row.providerTransactionId,
+      postedAt: row.postedAt,
+      merchantRaw: row.merchantRaw,
+      descriptionRaw: row.descriptionRaw,
+      amount: row.amount,
+      direction: row.direction,
+      sourceAccountName: row.sourceAccountName,
+      sourceAccountType: row.sourceAccountType,
+      date: row.date,
+    })),
+  );
+
+  return {
+    insertedCount: imported.length,
+    alreadyLoadedCount: rowsToImport.length - uniqueRows.length,
+    skippedOlderThanWatermarkCount,
+    skippedSemanticDuplicateCount: 0,
+    matchedPendingCount: 0,
+    promotedPendingCount: 0,
+    totalRows: rows.length,
+  };
+}
+
+export function resolvePendingTransaction(transactionId: string, resolution: "confirm_new" | "mark_duplicate") {
+  const state = getState();
+  const transaction = state.transactions.find((entry) => entry.id === transactionId);
+
+  if (!transaction) {
+    throw new Error("Pending transaction not found.");
+  }
+
+  transaction.pendingStatus = resolution === "confirm_new" ? "confirmed_new" : "ignored_duplicate";
+  transaction.pendingMatchTransactionId = resolution === "confirm_new" ? null : transaction.pendingMatchTransactionId;
+  transaction.reviewStatus = "reviewed";
+  transaction.updatedAt = new Date().toISOString();
+
+  return structuredClone(transaction);
 }
 
 export function saveAiSuggestions(suggestions: AiSuggestion[]) {
