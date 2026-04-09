@@ -11,8 +11,13 @@ export function BottomNavShell() {
   }, []);
 
   if (!mounted) {
-    return <div className="h-[72px]" aria-hidden="true" />;
+    return <div className="h-[104px]" aria-hidden="true" />;
   }
 
-  return <BottomNav />;
+  return (
+    <>
+      <div className="h-[104px]" aria-hidden="true" />
+      <BottomNav />
+    </>
+  );
 }

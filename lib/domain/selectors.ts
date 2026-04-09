@@ -15,6 +15,7 @@ import type {
 } from "@/lib/domain/types";
 
 const REVIEW_DUPLICATE_WINDOW_DAYS = 7;
+const REVIEW_DUPLICATE_LOOKBACK_DAYS = 10;
 
 export function filterTransactionsForCycle(transactions: Transaction[], cycleStartDay = 22, now = new Date()) {
   const cycle = getCycleWindow(now, cycleStartDay);
@@ -203,9 +204,16 @@ export function buildReviewDuplicateMatches(
 ) {
   const duplicateMatchByTransactionId = new Map<string, string>();
   const groupedTransactions = new Map<string, Transaction[]>();
+  const lookbackStart = new Date();
+  lookbackStart.setDate(lookbackStart.getDate() - REVIEW_DUPLICATE_LOOKBACK_DAYS);
 
   const eligibleTransactions = transactions
-    .filter((transaction) => transaction.pendingStatus !== "ignored_duplicate")
+    .filter(
+      (transaction) =>
+        transaction.provider === "csv" &&
+        transaction.pendingStatus !== "ignored_duplicate" &&
+        parseISO(transaction.date) >= lookbackStart,
+    )
     .sort((left, right) => {
       if (left.createdAt !== right.createdAt) {
         return left.createdAt.localeCompare(right.createdAt);

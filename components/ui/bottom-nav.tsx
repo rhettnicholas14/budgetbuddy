@@ -5,10 +5,9 @@ import { usePathname } from "next/navigation";
 import { BarChart3, CalendarRange, Home, ListFilter, SearchCheck, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
-void CalendarRange;
-
 const items = [
   { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/weekly", label: "Weekly", icon: CalendarRange },
   { href: "/transactions", label: "Transactions", icon: ListFilter },
   { href: "/review", label: "Review", icon: SearchCheck },
   { href: "/trends", label: "Trends", icon: BarChart3 },
@@ -19,9 +18,9 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.92)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] pt-2 backdrop-blur-xl">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.96)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 backdrop-blur-xl">
       <div className="mx-auto max-w-md">
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           {items.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -31,7 +30,7 @@ export function BottomNav() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-center text-[11px] font-medium transition",
+                  "flex min-w-0 flex-col items-center gap-1 rounded-2xl px-1.5 py-2 text-center text-[10px] font-medium leading-none transition sm:px-2 sm:text-[11px]",
                   active ? "bg-slate-900 text-white shadow-lg shadow-slate-900/15" : "text-slate-500",
                 )}
               >
@@ -42,6 +41,6 @@ export function BottomNav() {
           })}
         </div>
       </div>
-      </nav>
+    </nav>
   );
 }
