@@ -47,7 +47,7 @@ export type ParsedImportRow = {
 };
 
 export const CSV_IMPORT_OVERLAP_DAYS = 7;
-export const CSV_SEMANTIC_DEDUPE_WINDOW_DAYS = 3;
+export const CSV_SEMANTIC_DEDUPE_WINDOW_DAYS = 7;
 
 export function parseCsvFile(filename: string, csvText: string): ParsedImportRow[] {
   if (csvText.startsWith("Date,Amount,Account Number")) {

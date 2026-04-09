@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 household-spend-tracker/
+
+# Local Netlify folder
+.netlify

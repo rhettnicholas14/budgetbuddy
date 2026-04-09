@@ -21,7 +21,7 @@ export function CsvUpload({
       <div className="space-y-1">
         <p className="text-sm font-semibold text-slate-900">CSV statement upload</p>
         <p className="text-xs text-slate-500">
-          Imports use a 7-day overlap window, then skip older rows and dedupe anything already loaded.
+          Imports use a 7-day overlap window. Likely duplicates within 7 days are sent to review before they affect totals.
         </p>
       </div>
 

@@ -12,6 +12,7 @@ import { getAiSuggestions } from "@/lib/ai/finance-assistant";
 import { getAppSnapshot, persistAiSuggestions } from "@/lib/app-data";
 import { categories } from "@/lib/domain/categories";
 import { formatPreciseCurrency } from "@/lib/domain/format";
+import { buildReviewDuplicateMatches } from "@/lib/domain/selectors";
 
 export default async function ReviewPage({
   searchParams,
@@ -21,11 +22,12 @@ export default async function ReviewPage({
   const snapshot = await getAppSnapshot();
   const params = await searchParams;
   const status = String(params.status ?? "");
-  const queue = snapshot.transactions.filter((transaction) => transaction.needsReview);
+  const transactionMap = new Map(snapshot.transactions.map((transaction) => [transaction.id, transaction]));
+  const duplicateMatchMap = buildReviewDuplicateMatches(snapshot.transactions);
+  const queue = snapshot.transactions.filter((transaction) => transaction.needsReview || duplicateMatchMap.has(transaction.id));
   const aiSuggestions = await getAiSuggestions(snapshot, queue.slice(0, 12));
   await persistAiSuggestions(aiSuggestions);
   const suggestionMap = new Map(aiSuggestions.map((suggestion) => [suggestion.transactionId, suggestion]));
-  const transactionMap = new Map(snapshot.transactions.map((transaction) => [transaction.id, transaction]));
 
   return (
     <div className="space-y-4 pb-24">
@@ -47,26 +49,26 @@ export default async function ReviewPage({
       <div className="space-y-3">
         {queue.map((transaction) => {
           const suggestion = suggestionMap.get(transaction.id);
-          const pendingMatch = transaction.pendingMatchTransactionId
-            ? transactionMap.get(transaction.pendingMatchTransactionId)
-            : null;
+          const duplicateMatchId = transaction.pendingMatchTransactionId ?? duplicateMatchMap.get(transaction.id) ?? null;
+          const pendingMatch = duplicateMatchId ? transactionMap.get(duplicateMatchId) : null;
+          const isDuplicateCandidate = transaction.pendingStatus === "matched" || duplicateMatchMap.has(transaction.id);
 
           return (
           <Card key={transaction.id} className="space-y-4">
-            {transaction.pendingStatus === "matched" && pendingMatch ? (
+            {isDuplicateCandidate && pendingMatch ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-rose-950">Possible pending duplicate</p>
+                    <p className="text-sm font-semibold text-rose-950">Possible duplicate</p>
                     <p className="mt-1 text-sm text-rose-900/80">
-                      This looks like a pending or authorized version of an existing transaction.
+                      This looks like the same transaction as an existing row. Review it before you decide whether to keep it or mark it as a duplicate.
                     </p>
                     <p className="mt-2 text-xs text-rose-900/70">
                       Match: {pendingMatch.merchantRaw} · {format(new Date(pendingMatch.date), "EEE d MMM")} ·{" "}
                       {formatPreciseCurrency(pendingMatch.amount)}
                     </p>
                   </div>
-                  <Pill tone="warning">Pending match</Pill>
+                  <Pill tone="warning">Dup check</Pill>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <form action={resolvePendingTransactionAction}>
@@ -117,7 +119,7 @@ export default async function ReviewPage({
                 </div>
                 <div className="flex items-center gap-2">
                   <p className="text-base font-semibold text-slate-950">{transaction.merchantRaw}</p>
-                  <Pill tone="warning">{transaction.finalCategory === "review" ? "Split merchant" : "Review"}</Pill>
+                  <Pill tone="warning">{isDuplicateCandidate ? "Dup check" : transaction.finalCategory === "review" ? "Split merchant" : "Review"}</Pill>
                 </div>
                 {transaction.postedAt && transaction.postedAt !== transaction.date ? (
                   <p className="mt-1 text-sm text-slate-500">
@@ -143,6 +145,17 @@ export default async function ReviewPage({
               </select>
               <button className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">Assign</button>
             </form>
+
+            {transaction.pendingStatus !== "matched" ? (
+              <form action={resolvePendingTransactionAction}>
+                <input type="hidden" name="transactionId" value={transaction.id} />
+                <input type="hidden" name="resolution" value="mark_duplicate" />
+                <input type="hidden" name="returnTo" value="/review" />
+                <button className="w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900">
+                  Mark as duplicate
+                </button>
+              </form>
+            ) : null}
 
             <form action={addMerchantRuleAction} className="grid grid-cols-[1fr_auto] gap-2">
               <input type="hidden" name="merchantPattern" value={transaction.merchantNormalized} />

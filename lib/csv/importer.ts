@@ -324,10 +324,7 @@ async function classifySemanticImports({
         continue;
       }
 
-      if (
-        row.authorizationStatus === "pending" &&
-        duplicateAgainstExisting.pendingStatus !== "ignored_duplicate"
-      ) {
+      if (duplicateAgainstExisting.pendingStatus !== "ignored_duplicate") {
         matchedPendingCount += 1;
         keptRows.push({
           ...row,
@@ -404,7 +401,9 @@ function buildImportSummaryMessage({
   }
 
   if (skippedSemanticDuplicateCount > 0) {
-    parts.push(`${skippedSemanticDuplicateCount} skipped as likely duplicates by account, merchant, amount, and date.`);
+    parts.push(
+      `${skippedSemanticDuplicateCount} skipped as likely duplicates by account, merchant, amount, and a ${CSV_SEMANTIC_DEDUPE_WINDOW_DAYS}-day window.`,
+    );
   }
 
   if (matchedPendingCount > 0) {

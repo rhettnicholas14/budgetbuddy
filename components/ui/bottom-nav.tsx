@@ -19,27 +19,29 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="sticky bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.92)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] pt-2 backdrop-blur-xl">
-      <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href;
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.92)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.45rem)] pt-2 backdrop-blur-xl">
+      <div className="mx-auto max-w-md">
+        <div className="grid grid-cols-5 gap-1">
+          {items.map((item) => {
+            const Icon = item.icon;
+            const active = pathname === item.href;
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium transition",
-                active ? "bg-slate-900 text-white shadow-lg shadow-slate-900/15" : "text-slate-500",
-              )}
-            >
-              <Icon className="size-4" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex min-w-0 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-center text-[11px] font-medium transition",
+                  active ? "bg-slate-900 text-white shadow-lg shadow-slate-900/15" : "text-slate-500",
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
       </div>
-    </nav>
+      </nav>
   );
 }

@@ -14,6 +14,8 @@ import type {
   WeeklyTrackerSummary,
 } from "@/lib/domain/types";
 
+const REVIEW_DUPLICATE_WINDOW_DAYS = 7;
+
 export function filterTransactionsForCycle(transactions: Transaction[], cycleStartDay = 22, now = new Date()) {
   const cycle = getCycleWindow(now, cycleStartDay);
 
@@ -195,6 +197,52 @@ export function groupTransactionsByAccount(accounts: Account[], transactions: Tr
   }));
 }
 
+export function buildReviewDuplicateMatches(
+  transactions: Transaction[],
+  windowDays = REVIEW_DUPLICATE_WINDOW_DAYS,
+) {
+  const duplicateMatchByTransactionId = new Map<string, string>();
+  const groupedTransactions = new Map<string, Transaction[]>();
+
+  const eligibleTransactions = transactions
+    .filter((transaction) => transaction.pendingStatus !== "ignored_duplicate")
+    .sort((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt.localeCompare(right.createdAt);
+      }
+
+      if (left.date !== right.date) {
+        return left.date.localeCompare(right.date);
+      }
+
+      return left.id.localeCompare(right.id);
+    });
+
+  for (const transaction of eligibleTransactions) {
+    const key = [
+      transaction.provider,
+      transaction.sourceAccountName.trim().toLowerCase(),
+      transaction.merchantNormalized.trim().toLowerCase(),
+      transaction.direction,
+      transaction.amount.toFixed(2),
+    ].join("|");
+
+    const candidates = groupedTransactions.get(key) ?? [];
+    const matchedCandidate = [...candidates]
+      .reverse()
+      .find((candidate) => Math.abs(diffTransactionDays(candidate.date, transaction.date)) <= windowDays);
+
+    if (matchedCandidate) {
+      duplicateMatchByTransactionId.set(transaction.id, matchedCandidate.id);
+    }
+
+    candidates.push(transaction);
+    groupedTransactions.set(key, candidates);
+  }
+
+  return duplicateMatchByTransactionId;
+}
+
 export function buildWeeklyTrackerSummary(
   transactions: Transaction[],
   mode: WeeklyMode = "calendar",
@@ -260,4 +308,10 @@ function debitAmount(transaction: Transaction) {
 
 function countsTowardSpend(transaction: Transaction) {
   return !["matched", "ignored_duplicate"].includes(transaction.pendingStatus);
+}
+
+function diffTransactionDays(left: string, right: string) {
+  const leftTime = parseISO(left).getTime();
+  const rightTime = parseISO(right).getTime();
+  return Math.round((leftTime - rightTime) / 86_400_000);
 }
