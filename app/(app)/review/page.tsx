@@ -105,26 +105,37 @@ function DuplicateCard({
   pendingMatch: Transaction | null | undefined;
 }) {
   return (
-    <Card className="space-y-4">
+    <Card className="space-y-4 p-4 sm:p-5">
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-rose-950">Possible duplicate</p>
             <p className="mt-1 text-sm text-rose-900/80">
-              This matches another recent transaction on merchant and amount. Review it before it affects your totals.
+              Same merchant and amount within 7 days. Decide whether this one is new or a duplicate.
             </p>
-            {pendingMatch ? (
-              <p className="mt-2 text-xs text-rose-900/70">
-                Match: {pendingMatch.merchantRaw} · {format(new Date(pendingMatch.date), "EEE d MMM")} ·{" "}
-                {formatPreciseCurrency(pendingMatch.amount)}
-              </p>
-            ) : null}
           </div>
           <Pill tone="warning">Dup check</Pill>
         </div>
       </div>
 
-      <TransactionHeader transaction={transaction} badge="Dup check" />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <TransactionSummaryCard
+          badge="This transaction"
+          tone="current"
+          transaction={transaction}
+        />
+        {pendingMatch ? (
+          <TransactionSummaryCard
+            badge="Matched transaction"
+            tone="match"
+            transaction={pendingMatch}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Matching transaction details are not available, but this item still matched the duplicate rule.
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         <form action={resolvePendingTransactionAction}>
@@ -164,7 +175,7 @@ function CategoryCard({
     | undefined;
 }) {
   return (
-    <Card className="space-y-4">
+    <Card className="space-y-4 p-4 sm:p-5">
       {suggestion ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
           <div className="flex items-start justify-between gap-3">
@@ -188,9 +199,10 @@ function CategoryCard({
         </div>
       ) : null}
 
-      <TransactionHeader
-        transaction={transaction}
+      <TransactionSummaryCard
         badge={transaction.finalCategory === "review" ? "Split merchant" : "Review"}
+        tone="current"
+        transaction={transaction}
       />
 
       <form action={updateTransactionCategoryAction} className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -233,35 +245,55 @@ function CategoryCard({
   );
 }
 
-function TransactionHeader({
+function TransactionSummaryCard({
   transaction,
   badge,
+  tone,
 }: {
   transaction: Transaction;
   badge: string;
+  tone: "current" | "match";
 }) {
+  const badgeClassName =
+    tone === "match"
+      ? "bg-rose-100 text-rose-800"
+      : "bg-slate-100 text-slate-700";
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="mb-2 inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700">
-            {format(new Date(transaction.date), "EEE d MMM yyyy")}
-          </div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-base font-semibold text-slate-950">{transaction.merchantRaw}</p>
-            <Pill tone="warning">{badge}</Pill>
+            <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${badgeClassName}`}>
+              {badge}
+            </span>
+            <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700">
+              {format(new Date(transaction.date), "EEE d MMM yyyy")}
+            </span>
           </div>
-          {transaction.postedAt && transaction.postedAt !== transaction.date ? (
-            <p className="mt-1 text-sm text-slate-500">
-              Posted {format(new Date(transaction.postedAt), "EEE d MMM yyyy")}
-            </p>
-          ) : null}
-          <p className="mt-1 text-sm text-slate-500">
-            {transaction.sourceAccountName} · {transaction.sourceAccountType === "credit_card" ? "CC" : "Savings/Bank"}
-          </p>
+          <p className="text-base font-semibold leading-tight text-slate-950">{transaction.merchantRaw}</p>
         </div>
-        <p className="text-lg font-semibold text-slate-950">{formatPreciseCurrency(transaction.amount)}</p>
+        <p className="shrink-0 text-lg font-semibold text-slate-950">{formatPreciseCurrency(transaction.amount)}</p>
       </div>
+
+      <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Account</dt>
+          <dd className="mt-1 text-slate-700">
+            {transaction.sourceAccountName} · {transaction.sourceAccountType === "credit_card" ? "CC" : "Savings/Bank"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Category</dt>
+          <dd className="mt-1 text-slate-700">{transaction.finalCategory}</dd>
+        </div>
+        {transaction.postedAt && transaction.postedAt !== transaction.date ? (
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Posted</dt>
+            <dd className="mt-1 text-slate-700">{format(new Date(transaction.postedAt), "EEE d MMM yyyy")}</dd>
+          </div>
+        ) : null}
+      </dl>
     </div>
   );
 }

@@ -215,7 +215,70 @@ export default async function TransactionsPage({
         <CsvUpload watermarks={csvImportWatermarks} />
       </Card>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="space-y-3 md:hidden">
+        {flattenedTransactions.map((transaction) => (
+          <Card key={transaction.id} className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-base font-semibold leading-tight text-slate-950">{transaction.merchantNormalized}</p>
+                <p className="mt-1 text-sm text-slate-500">{transaction.sourceAccountName}</p>
+              </div>
+              <p
+                className={`shrink-0 text-base font-semibold ${
+                  transaction.direction === "credit" ? "text-emerald-700" : "text-slate-950"
+                }`}
+              >
+                {transaction.direction === "credit" ? "+" : "-"}
+                {formatPreciseCurrency(Math.abs(transaction.amount))}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">
+                {format(new Date(transaction.date), "EEE d MMM")}
+              </span>
+              <span
+                className={`rounded-full px-2.5 py-1 font-semibold ${
+                  transaction.direction === "credit"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-rose-100 text-rose-800"
+                }`}
+              >
+                {transaction.direction === "credit" ? "Money in" : "Money out"}
+              </span>
+              {transaction.pendingStatus === "matched" ? (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-800">Pending</span>
+              ) : null}
+              {transaction.overrideCategory ? (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-semibold text-emerald-800">Manual</span>
+              ) : null}
+            </div>
+
+            <p className="text-sm text-slate-500">{transaction.descriptionRaw}</p>
+
+            <form action={updateTransactionCategoryAction} className="grid gap-2">
+              <input type="hidden" name="transactionId" value={transaction.id} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <select
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                name="category"
+                defaultValue={transaction.finalCategory}
+              >
+                {categories.map((category) => (
+                  <option key={category.slug} value={category.slug}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+              <button className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
+                Save category
+              </button>
+            </form>
+          </Card>
+        ))}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
         <table className="w-full table-fixed border-collapse text-[10px]">
           <colgroup>
             <col style={{ width: "58px" }} />

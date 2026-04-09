@@ -36,10 +36,10 @@ export function WeeklyTrendChart({ data }: { data: WeeklyTrackerPoint[] }) {
           <Tooltip
             formatter={(value, name) => [formatCurrency(Number(value ?? 0)), labelMap[String(name)] ?? String(name)]}
           />
-          <Bar dataKey="groceries" stackId="weekly" fill="#4e7f52" radius={[8, 8, 0, 0]} />
+          <Bar dataKey="groceries" stackId="weekly" fill="#4e7f52" />
           <Bar dataKey="lifestyle" stackId="weekly" fill="#ef7d57" />
           <Bar dataKey="essentialVariable" stackId="weekly" fill="#6d8d9e" />
-          <Bar dataKey="fixedCC" stackId="weekly" fill="#244855" />
+          <Bar dataKey="fixedCC" stackId="weekly" fill="#244855" radius={[8, 8, 0, 0]} />
           <Line type="monotone" dataKey="controlSpend" stroke="#132437" strokeWidth={2} dot={{ r: 2 }} />
         </BarChart>
       </ResponsiveContainer>

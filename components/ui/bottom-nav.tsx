@@ -20,7 +20,7 @@ export function BottomNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.96)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 backdrop-blur-xl">
       <div className="mx-auto max-w-md">
-        <div className="grid grid-cols-6 gap-1">
+        <div className="flex items-stretch gap-1">
           {items.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -30,12 +30,12 @@ export function BottomNav() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-2xl px-1.5 py-2 text-center text-[10px] font-medium leading-none transition sm:px-2 sm:text-[11px]",
+                  "flex min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2.5 text-center text-[9px] font-medium leading-none transition sm:px-2 sm:text-[11px]",
                   active ? "bg-slate-900 text-white shadow-lg shadow-slate-900/15" : "text-slate-500",
                 )}
               >
                 <Icon className="size-4 shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <span className="block max-w-full truncate">{item.label}</span>
               </Link>
             );
           })}
