@@ -14,7 +14,7 @@ export function Card({
     <section
       style={style}
       className={cn(
-        "rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_20px_60px_rgba(38,56,76,0.08)] backdrop-blur",
+        "rounded-2xl border border-white/70 bg-white/90 p-3 shadow-[0_10px_28px_rgba(38,56,76,0.07)] backdrop-blur",
         className,
       )}
     >

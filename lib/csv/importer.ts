@@ -54,17 +54,39 @@ export async function importCsvText(filename: string, csvText: string): Promise<
     overlapDays: CSV_IMPORT_OVERLAP_DAYS,
   });
 
+  const isInitialCsvLoad = accountWatermarks.size === 0;
+
   const {
     rowsToImport: semanticallyFilteredRows,
     skippedSemanticDuplicateCount,
     matchedPendingCount,
     promotedPendingCount,
     pendingPromotions,
-  } = await classifySemanticImports({
-    supabase,
-    householdId: snapshot.household.id,
-    rows: rowsToImport,
-  });
+  } = isInitialCsvLoad
+    ? {
+        rowsToImport: rowsToImport.map((row) => ({
+          ...row,
+          pendingStatus: "none" as const,
+          pendingMatchTransactionId: null,
+        })),
+        skippedSemanticDuplicateCount: 0,
+        matchedPendingCount: 0,
+        promotedPendingCount: 0,
+        pendingPromotions: [] as Array<{
+          transactionId: string;
+          providerTransactionId: string;
+          date: string;
+          postedAt: string;
+          merchantRaw: string;
+          descriptionRaw: string;
+          authorizationStatus: "pending" | "posted" | "unknown";
+        }>,
+      }
+    : await classifySemanticImports({
+        supabase,
+        householdId: snapshot.household.id,
+        rows: rowsToImport,
+      });
 
   const payload = buildTransactionPayload({
     rows: semanticallyFilteredRows,
@@ -74,7 +96,13 @@ export async function importCsvText(filename: string, csvText: string): Promise<
     accountIdByKey,
   });
 
-  if (payload.length === 0) {
+  const payloadWithCollisionReview = await forceReviewForProviderIdCollisions({
+    supabase,
+    householdId: snapshot.household.id,
+    payload,
+  });
+
+  if (payloadWithCollisionReview.length === 0) {
     return {
       insertedCount: 0,
       alreadyLoadedCount: 0,
@@ -97,7 +125,7 @@ export async function importCsvText(filename: string, csvText: string): Promise<
 
   const { data, error } = await supabase
     .from("transactions")
-    .upsert(payload, { onConflict: "household_id,provider,provider_transaction_id", ignoreDuplicates: true })
+    .upsert(payloadWithCollisionReview, { onConflict: "household_id,provider,provider_transaction_id", ignoreDuplicates: true })
     .select("id");
 
   if (error) {
@@ -131,7 +159,7 @@ export async function importCsvText(filename: string, csvText: string): Promise<
   }
 
   const insertedCount = data?.length ?? 0;
-  const alreadyLoadedCount = Math.max(payload.length - insertedCount, 0);
+  const alreadyLoadedCount = Math.max(payloadWithCollisionReview.length - insertedCount, 0);
 
   return {
     insertedCount,
@@ -151,6 +179,90 @@ export async function importCsvText(filename: string, csvText: string): Promise<
       totalRows: rows.length,
     }),
   };
+}
+
+async function forceReviewForProviderIdCollisions({
+  supabase,
+  householdId,
+  payload,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  householdId: string;
+  payload: ReturnType<typeof buildTransactionPayload>;
+}) {
+  if (payload.length === 0) {
+    return payload;
+  }
+
+  const providerIds = [...new Set(payload.map((row) => row.provider_transaction_id))];
+  const existingRows: Array<{ id: string; provider_transaction_id: string }> = [];
+  const CHUNK_SIZE = 200;
+
+  for (let index = 0; index < providerIds.length; index += CHUNK_SIZE) {
+    const chunk = providerIds.slice(index, index + CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("id, provider_transaction_id")
+      .eq("household_id", householdId)
+      .eq("provider", "csv")
+      .in("provider_transaction_id", chunk);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of data ?? []) {
+      existingRows.push({
+        id: String(row.id),
+        provider_transaction_id: String(row.provider_transaction_id),
+      });
+    }
+  }
+
+  const existingByProviderId = new Map<string, string>(
+    existingRows.map((row) => [row.provider_transaction_id, row.id]),
+  );
+  const usedProviderIds = new Set<string>(providerIds);
+  const seenInBatch = new Set<string>();
+
+  return payload.map((row) => {
+    const originalProviderId = row.provider_transaction_id;
+    const existingMatchId = existingByProviderId.get(originalProviderId) ?? null;
+    const duplicatedWithinBatch = seenInBatch.has(originalProviderId);
+
+    if (!existingMatchId && !duplicatedWithinBatch) {
+      seenInBatch.add(originalProviderId);
+      return row;
+    }
+
+    let attempt = 1;
+    const reviewToken = createReviewToken();
+    let candidate = `${originalProviderId}:review:${reviewToken}:${attempt}`;
+    while (usedProviderIds.has(candidate) || seenInBatch.has(candidate)) {
+      attempt += 1;
+      candidate = `${originalProviderId}:review:${reviewToken}:${attempt}`;
+    }
+
+    usedProviderIds.add(candidate);
+    seenInBatch.add(candidate);
+
+    return {
+      ...row,
+      provider_transaction_id: candidate,
+      pending_status: "matched" as const,
+      pending_match_transaction_id: existingMatchId,
+    };
+  });
+}
+
+function createReviewToken() {
+  const globalCrypto = globalThis.crypto as { randomUUID?: () => string } | undefined;
+
+  if (globalCrypto?.randomUUID) {
+    return globalCrypto.randomUUID().slice(0, 8);
+  }
+
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 async function upsertCsvAccounts({
@@ -186,7 +298,7 @@ async function upsertCsvAccounts({
           institution_name: row.institutionName,
           source_account_name: row.accountName,
           source_account_type: row.accountType,
-          balance: 0,
+          balance: row.accountBalance ?? 0,
           mask: row.accountName.match(/(\d{4})$/)?.[1] ?? null,
         })),
       )
@@ -198,6 +310,28 @@ async function upsertCsvAccounts({
 
     for (const row of inserted ?? []) {
       map.set(row.provider_account_id as string, row.id as string);
+    }
+  }
+
+  const balanceUpdates = rows
+    .filter((row) => row.accountBalance != null)
+    .map((row) =>
+      supabase
+        .from("accounts")
+        .update({
+          balance: row.accountBalance,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("household_id", householdId)
+        .eq("provider", "csv")
+        .eq("provider_account_id", row.accountKey),
+    );
+
+  if (balanceUpdates.length > 0) {
+    const results = await Promise.all(balanceUpdates);
+    const updateError = results.find((result) => result.error)?.error;
+    if (updateError) {
+      throw updateError;
     }
   }
 
@@ -307,39 +441,25 @@ async function classifySemanticImports({
 
   for (const row of rows) {
     const duplicateAgainstExisting = existingRows.find((existingRow) => isLikelySemanticDuplicate(existingRow, row));
-    const duplicateWithinBatch = keptRows.some((keptRow) => isLikelySemanticDuplicate(keptRow, row));
+    const duplicateWithinBatch = keptRows.find((keptRow) => isLikelySemanticDuplicate(keptRow, row));
 
     if (duplicateAgainstExisting) {
-      if (row.authorizationStatus !== "pending" && duplicateAgainstExisting.authorizationStatus === "pending") {
-        promotedPendingCount += 1;
-        pendingPromotions.push({
-          transactionId: duplicateAgainstExisting.id,
-          providerTransactionId: row.providerTransactionId,
-          date: row.date,
-          postedAt: row.postedAt,
-          merchantRaw: row.merchantRaw,
-          descriptionRaw: row.descriptionRaw,
-          authorizationStatus: row.authorizationStatus,
-        });
-        continue;
-      }
-
-      if (duplicateAgainstExisting.pendingStatus !== "ignored_duplicate") {
-        matchedPendingCount += 1;
-        keptRows.push({
-          ...row,
-          pendingStatus: "matched",
-          pendingMatchTransactionId: duplicateAgainstExisting.id,
-        });
-        continue;
-      }
-
-      skippedSemanticDuplicateCount += 1;
+      matchedPendingCount += 1;
+      keptRows.push({
+        ...row,
+        pendingStatus: "matched",
+        pendingMatchTransactionId: duplicateAgainstExisting.id,
+      });
       continue;
     }
 
     if (duplicateWithinBatch) {
-      skippedSemanticDuplicateCount += 1;
+      matchedPendingCount += 1;
+      keptRows.push({
+        ...row,
+        pendingStatus: "matched",
+        pendingMatchTransactionId: null,
+      });
       continue;
     }
 

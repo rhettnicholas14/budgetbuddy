@@ -1,11 +1,17 @@
-import { addMerchantRuleAction, deleteMerchantRuleAction, reapplyMerchantRulesAction, updateMerchantRuleAction } from "@/app/actions";
+import {
+  addMerchantRuleAction,
+  deleteMerchantRuleAction,
+  reapplyMerchantRulesAction,
+  updateBudgetLeversAction,
+  updateMerchantRuleAction,
+} from "@/app/actions";
 import { Card } from "@/components/ui/card";
 import { ConnectBankButton } from "@/components/settings/connect-bank-button";
 import { DemoResetButton } from "@/components/settings/demo-reset-button";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { categories } from "@/lib/domain/categories";
 import { formatCurrency } from "@/lib/domain/format";
-import { buildAccountSummaries } from "@/lib/domain/selectors";
+import { buildAccountSummaries, buildBudgetSummary } from "@/lib/domain/selectors";
 import { getAppSnapshot } from "@/lib/app-data";
 import { appEnv } from "@/lib/env";
 
@@ -19,15 +25,66 @@ export default async function SettingsPage({
   const basiqStatus = String(params.basiq ?? "");
   const status = String(params.status ?? "");
   const ruleSearch = String(params.ruleSearch ?? "").trim().toLowerCase();
+  const ruleCategory = String(params.ruleCategory ?? "").trim();
   const liveConnection = snapshot.bankConnections.find((entry) => entry.provider === "basiq");
   const accountSummaries = buildAccountSummaries(snapshot.accounts, snapshot.transactions, snapshot.household.cycleStartDay);
+  const budgetSummary = buildBudgetSummary(snapshot.transactions, snapshot.budget, snapshot.household.cycleStartDay);
+  const leverRows = [
+    {
+      id: "fixed",
+      label: "Fixed",
+      spend: budgetSummary.fixedSpend,
+      target: snapshot.budget.fixedTarget,
+      input: "fixedTarget",
+      toggle: "fixedEnabled",
+      note: "Subscriptions, insurance, regular bills",
+    },
+    {
+      id: "groceries",
+      label: "Groceries",
+      spend: budgetSummary.groceriesSpend,
+      target: snapshot.budget.groceriesTarget,
+      input: "groceriesTarget",
+      toggle: "groceriesEnabled",
+      note: "Supermarket + household consumables",
+    },
+    {
+      id: "essential",
+      label: "Essential variable",
+      spend: budgetSummary.essentialVariableSpend,
+      target: snapshot.budget.essentialVariableTarget,
+      input: "essentialVariableTarget",
+      toggle: "essentialEnabled",
+      note: "Medical, transport, required misc spend",
+    },
+    {
+      id: "lifestyle",
+      label: "Lifestyle",
+      spend: budgetSummary.lifestyleSpend,
+      target: snapshot.budget.lifestyleTarget,
+      input: "lifestyleTarget",
+      toggle: "lifestyleEnabled",
+      note: "Main lever for faster cash-positive change",
+    },
+    {
+      id: "oneoff",
+      label: "One-offs",
+      spend: budgetSummary.oneOffSpend,
+      target: snapshot.budget.oneOffTarget,
+      input: "oneOffTarget",
+      toggle: "oneOffEnabled",
+      note: "Non-recurring purchases and projects",
+    },
+  ] as const;
   const filteredRules = snapshot.merchantRules
     .filter((rule) => {
       if (!ruleSearch) {
-        return true;
+        return ruleCategory ? rule.category === ruleCategory : true;
       }
 
-      return `${rule.normalizedMerchant} ${rule.merchantPattern}`.toLowerCase().includes(ruleSearch);
+      const matchesSearch = `${rule.normalizedMerchant} ${rule.merchantPattern}`.toLowerCase().includes(ruleSearch);
+      const matchesCategory = ruleCategory ? rule.category === ruleCategory : true;
+      return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
       if (a.active !== b.active) {
@@ -41,6 +98,9 @@ export default async function SettingsPage({
 
   if (ruleSearch) {
     currentSearch.set("ruleSearch", ruleSearch);
+  }
+  if (ruleCategory) {
+    currentSearch.set("ruleCategory", ruleCategory);
   }
 
   const settingsReturnTo = currentSearch.toString() ? `/settings?${currentSearch.toString()}` : "/settings";
@@ -85,6 +145,70 @@ export default async function SettingsPage({
 
       <Card className="space-y-4">
         <div>
+          <p className="text-lg font-semibold text-slate-950">Budget levers</p>
+          <p className="mt-1 text-sm text-slate-600">Toggle each lever and set targets using current-cycle evidence.</p>
+        </div>
+        <form action={updateBudgetLeversAction} className="space-y-3">
+          <input type="hidden" name="returnTo" value={settingsReturnTo} />
+          {leverRows.map((lever) => {
+            const variance = Number((lever.spend - lever.target).toFixed(2));
+            const overTarget = lever.target > 0 && variance > 0;
+            const withinTarget = lever.target > 0 && variance <= 0;
+
+            return (
+              <div key={lever.id} className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <input type="checkbox" name={lever.toggle} defaultChecked={lever.target > 0} className="size-4 rounded border-slate-300" />
+                    {lever.label}
+                  </label>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      overTarget ? "bg-rose-100 text-rose-700" : withinTarget ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {lever.target > 0 ? (overTarget ? `${formatCurrency(variance)} over` : `${formatCurrency(Math.abs(variance))} under`) : "Disabled"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{lever.note}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-slate-50 px-2.5 py-2">
+                    <p className="text-xs text-slate-500">Actual</p>
+                    <p className="font-semibold text-slate-900">{formatCurrency(lever.spend)}</p>
+                  </div>
+                  <label className="rounded-xl bg-slate-50 px-2.5 py-2">
+                    <span className="block text-xs text-slate-500">Target</span>
+                    <input
+                      name={lever.input}
+                      type="number"
+                      step="1"
+                      min="0"
+                      defaultValue={Math.max(lever.target, 0)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900"
+                    />
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-2xl bg-slate-50 px-3 py-3">
+              <p className="text-slate-500">Current cycle tracked spend</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(budgetSummary.budgetTrackedSpend)}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 px-3 py-3">
+              <p className="text-slate-500">Current cycle target</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(snapshot.budget.cycleTarget)}</p>
+            </div>
+          </div>
+          <button className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
+            Save budget levers
+          </button>
+        </form>
+      </Card>
+
+      <Card className="space-y-4">
+        <div>
           <p className="text-lg font-semibold text-slate-950">Add merchant rule</p>
           <p className="mt-1 text-sm text-slate-600">Exact match wins first. Use split-merchant review for Amazon and Apple style merchants.</p>
         </div>
@@ -125,15 +249,27 @@ export default async function SettingsPage({
             <p className="text-lg font-semibold text-slate-950">Merchant mappings</p>
             <p className="mt-1 text-sm text-slate-600">Search, edit, deactivate, or delete rules inline.</p>
           </div>
-          <form className="grid grid-cols-[1fr_auto] gap-2">
+          <form className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_220px_auto]">
             <input
               name="ruleSearch"
               placeholder="Search merchant rules"
               defaultValue={ruleSearch}
               className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
             />
+            <select
+              name="ruleCategory"
+              defaultValue={ruleCategory}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="">All categories</option>
+              {categories.map((category) => (
+                <option key={category.slug} value={category.slug}>
+                  {category.label}
+                </option>
+              ))}
+            </select>
             <button className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800">
-              Search
+              Filter
             </button>
           </form>
         </div>
@@ -271,15 +407,9 @@ export default async function SettingsPage({
 
       <Card className="space-y-3">
         <p className="text-lg font-semibold text-slate-950">Household</p>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-2xl bg-slate-50 p-3">
-            <p className="text-slate-500">Cycle target</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(snapshot.budget.cycleTarget)}</p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 p-3">
-            <p className="text-slate-500">Mode</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{appEnv.mockMode ? "Demo" : "Live"}</p>
-          </div>
+        <div className="rounded-2xl bg-slate-50 p-3 text-sm">
+          <p className="text-slate-500">Mode</p>
+          <p className="mt-1 text-base font-semibold text-slate-900">{appEnv.mockMode ? "Demo" : "Live"}</p>
         </div>
       </Card>
 

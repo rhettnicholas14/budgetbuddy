@@ -18,7 +18,10 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.96)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 backdrop-blur-xl">
+    <nav
+      data-mobile-nav="true"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-white/70 bg-[rgba(246,241,235,0.96)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 backdrop-blur-xl sm:hidden"
+    >
       <div className="mx-auto max-w-md">
         <div className="flex items-stretch gap-1">
           {items.map((item) => {

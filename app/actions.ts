@@ -9,6 +9,7 @@ import {
   resolvePendingTransaction,
   saveMerchantRule,
   saveTransactionCategory,
+  updateBudgetLevers,
   updateMerchantRule,
 } from "@/lib/app-data";
 import type { CategoryKind } from "@/lib/domain/types";
@@ -155,5 +156,53 @@ export async function resolvePendingTransactionAction(formData: FormData) {
 
   if (returnTo.startsWith("/")) {
     redirect(withStatus(returnTo, resolution === "confirm_new" ? "pending-confirmed" : "pending-ignored"));
+  }
+}
+
+function parseMoneyValue(value: FormDataEntryValue | null, fallback: number) {
+  const parsed = Number(value ?? "");
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Number(parsed.toFixed(2));
+}
+
+export async function updateBudgetLeversAction(formData: FormData) {
+  const returnTo = String(formData.get("returnTo") ?? "/settings");
+
+  const fixedEnabled = formData.get("fixedEnabled") === "on";
+  const groceriesEnabled = formData.get("groceriesEnabled") === "on";
+  const essentialEnabled = formData.get("essentialEnabled") === "on";
+  const lifestyleEnabled = formData.get("lifestyleEnabled") === "on";
+  const oneOffEnabled = formData.get("oneOffEnabled") === "on";
+
+  const fixedTarget = fixedEnabled ? parseMoneyValue(formData.get("fixedTarget"), 0) : 0;
+  const groceriesTarget = groceriesEnabled ? parseMoneyValue(formData.get("groceriesTarget"), 0) : 0;
+  const essentialVariableTarget = essentialEnabled ? parseMoneyValue(formData.get("essentialVariableTarget"), 0) : 0;
+  const lifestyleTarget = lifestyleEnabled ? parseMoneyValue(formData.get("lifestyleTarget"), 0) : 0;
+  const oneOffTarget = oneOffEnabled ? parseMoneyValue(formData.get("oneOffTarget"), 0) : 0;
+
+  const cycleTarget = Number(
+    (fixedTarget + groceriesTarget + essentialVariableTarget + lifestyleTarget + oneOffTarget).toFixed(2),
+  );
+
+  await updateBudgetLevers({
+    fixedTarget,
+    groceriesTarget,
+    essentialVariableTarget,
+    lifestyleTarget,
+    oneOffTarget,
+    cycleTarget,
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/weekly");
+  revalidatePath("/transactions");
+  revalidatePath("/review");
+  revalidatePath("/trends");
+  revalidatePath("/settings");
+
+  if (returnTo.startsWith("/")) {
+    redirect(withStatus(returnTo, "budget-updated"));
   }
 }

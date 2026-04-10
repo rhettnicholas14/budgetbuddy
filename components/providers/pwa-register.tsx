@@ -8,11 +8,12 @@ export function PwaRegister() {
       return;
     }
 
+    const isDev = process.env.NODE_ENV !== "production";
     const isLocalhost =
       window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1";
 
-    if (isLocalhost) {
+    if (isDev || isLocalhost) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
         registrations.forEach((registration) => {
           registration.unregister().catch(() => null);
@@ -28,9 +29,7 @@ export function PwaRegister() {
       return;
     }
 
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => null);
-    }
+    navigator.serviceWorker.register("/sw.js").catch(() => null);
   }, []);
 
   return null;

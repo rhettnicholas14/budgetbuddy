@@ -58,6 +58,15 @@ export function CsvUpload({
             });
 
             const payload = await response.json();
+            if (!response.ok) {
+              setMessage(
+                payload?.stack
+                  ? `${payload.message ?? "Import failed."}\n${payload.stack}`
+                  : payload?.message ?? "Import failed.",
+              );
+              return;
+            }
+
             setMessage(payload.message ?? `Imported ${payload.count ?? 0} transactions.`);
           });
         }}
@@ -79,7 +88,7 @@ export function CsvUpload({
         >
           {isPending ? "Importing..." : "Import CSV"}
         </button>
-        {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+        {message ? <pre className="whitespace-pre-wrap text-sm text-slate-600">{message}</pre> : null}
       </form>
     </div>
   );

@@ -9,6 +9,7 @@ import type { MerchantRule, Transaction } from "@/lib/domain/types";
 type CardCsvRow = {
   Date: string;
   Amount: string;
+  Balance: string;
   "Account Number": string;
   "Transaction Details": string;
   "Merchant Name": string;
@@ -32,6 +33,7 @@ export type ParsedImportRow = {
   accountKey: string;
   accountName: string;
   accountType: "transaction" | "credit_card" | "savings";
+  accountBalance?: number | null;
   institutionName: string;
   date: string;
   postedAt: string;
@@ -271,16 +273,17 @@ export function classifyAuthorizationStatus(input: {
 
 function parseCardCsv(filename: string, content: string): ParsedImportRow[] {
   const parsed = Papa.parse<CardCsvRow>(content, { header: true, skipEmptyLines: true });
+  const accountName = "NAB Credit Card";
+  const accountKey = "csv:nab-credit-card";
 
   return parsed.data.map((row) => {
     const date = formatDate(row.Date, "dd MMM yy");
     const amount = Math.abs(Number(row.Amount));
     const merchantRaw = row["Merchant Name"]?.trim() || deriveMerchantFromDetails(row["Transaction Details"]);
-    const accountName = row["Account Number"]?.trim() || "Card";
     const descriptionRaw = row["Transaction Details"]?.trim() || merchantRaw;
     const postedAt = row["Processed On"] ? formatDate(row["Processed On"], "dd MMM yy") : date;
     const direction = Number(row.Amount) < 0 ? "debit" : "credit";
-    const accountKey = `csv:${accountName}`;
+    const accountBalance = row.Balance ? Math.abs(Number(row.Balance)) : null;
 
     return {
       providerTransactionId: buildStableProviderTransactionId({
@@ -296,7 +299,8 @@ function parseCardCsv(filename: string, content: string): ParsedImportRow[] {
       accountKey,
       accountName,
       accountType: "credit_card",
-      institutionName: inferInstitution(accountName, row["Transaction Details"]),
+      accountBalance,
+      institutionName: "NAB",
       date,
       postedAt,
       merchantRaw,
@@ -319,6 +323,8 @@ function parseCardCsv(filename: string, content: string): ParsedImportRow[] {
 
 function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
   const parsed = Papa.parse<OffsetCsvRow>(content, { header: true, skipEmptyLines: true });
+  const accountName = "Macquarie Offset";
+  const accountKey = "csv:macquarie-offset";
 
   return parsed.data.map((row) => {
     const debit = row.Debit ? Number(row.Debit) : 0;
@@ -327,9 +333,7 @@ function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
     const direction = debit > 0 ? "debit" : "credit";
     const descriptionRaw = row["Original Description"]?.trim() || row.Details?.trim() || "Offset transaction";
     const merchantRaw = deriveMerchantFromOffsetRow(row);
-    const accountName = row.Account?.trim() || "Offset";
     const date = formatDate(row["Transaction Date"], "dd MMM yyyy");
-    const accountKey = `csv:${accountName}`;
 
     return {
       providerTransactionId: buildStableProviderTransactionId({
@@ -345,7 +349,8 @@ function parseOffsetCsv(filename: string, content: string): ParsedImportRow[] {
       accountKey,
       accountName,
       accountType: "savings",
-      institutionName: inferInstitution(accountName, descriptionRaw),
+      accountBalance: null,
+      institutionName: "Macquarie",
       date,
       postedAt: date,
       merchantRaw,
@@ -392,6 +397,7 @@ function parseGenericCsv(filename: string, content: string): ParsedImportRow[] {
       accountKey,
       accountName,
       accountType: "transaction",
+      accountBalance: null,
       institutionName: inferInstitution(accountName, merchantRaw),
       date: date || postedAt,
       postedAt,

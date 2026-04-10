@@ -31,6 +31,17 @@ export default async function TransactionsPage({
   const totalCreditCardCycleSpend = accountSummaries
     .filter((summary) => summary.accountType === "credit_card")
     .reduce((sum, summary) => sum + summary.cycleSpend, 0);
+  const cycleCreditCardTransactions = snapshot.transactions.filter(
+    (transaction) =>
+      transaction.sourceAccountType === "credit_card" &&
+      transaction.cycleLabel === currentCycle,
+  );
+  const cycleCreditCardPayments = cycleCreditCardTransactions
+    .filter((transaction) => transaction.direction === "credit")
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
+  const cycleDuplicateAtRisk = cycleCreditCardTransactions
+    .filter((transaction) => transaction.pendingStatus === "matched" && transaction.direction === "debit")
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0);
   const creditCardCount = accountSummaries.filter((summary) => summary.accountType === "credit_card").length;
   const currentSearch = new URLSearchParams();
 
@@ -107,16 +118,16 @@ export default async function TransactionsPage({
     .sort((left, right) => left.accountName.localeCompare(right.accountName));
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-3 pb-24">
       <div className="space-y-2 px-1">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Transactions</p>
-        <h1 className="text-4xl font-bold text-slate-950">One fast transaction view across every account.</h1>
+        <h1 className="text-2xl font-bold text-slate-950 sm:text-3xl">One fast transaction view across every account.</h1>
       </div>
 
       <StatusBanner status={status} />
 
       {creditCardCount > 0 ? (
-        <Card>
+        <Card className="space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Credit Card Total</p>
@@ -130,44 +141,26 @@ export default async function TransactionsPage({
               <p className="mt-1 text-lg font-semibold text-slate-900">{formatCurrency(totalCreditCardCycleSpend)}</p>
             </div>
           </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Card balance</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(totalCreditCardBalance)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Cycle spend</p>
+              <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(totalCreditCardCycleSpend)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Cycle payments</p>
+              <p className="mt-1 text-base font-semibold text-emerald-700">{formatCurrency(cycleCreditCardPayments)}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700">Duplicate at risk</p>
+              <p className="mt-1 text-base font-semibold text-amber-900">{formatCurrency(cycleDuplicateAtRisk)}</p>
+            </div>
+          </div>
         </Card>
       ) : null}
-
-      <div className="grid grid-cols-1 gap-3">
-        {accountSummaries.map((summary) => (
-          <Card
-            key={summary.accountId}
-            className={account === summary.accountId ? "border-slate-900/20 bg-slate-50" : ""}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-base font-semibold text-slate-950">{summary.accountName}</p>
-                <p className="text-sm text-slate-500">
-                  {summary.institutionName} · {summary.accountType === "credit_card" ? "Credit card" : summary.accountType}
-                </p>
-              </div>
-              <p className="text-lg font-semibold text-slate-950">{formatCurrency(summary.balance)}</p>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-              <div className="rounded-2xl bg-white px-3 py-2">
-                <p className="text-slate-500">Cycle spend</p>
-                <p className="mt-1 font-semibold text-slate-900">{formatCurrency(summary.cycleSpend)}</p>
-              </div>
-              <div className="rounded-2xl bg-white px-3 py-2">
-                <p className="text-slate-500">Transactions</p>
-                <p className="mt-1 font-semibold text-slate-900">{summary.transactionCount}</p>
-              </div>
-              <div className="rounded-2xl bg-white px-3 py-2">
-                <p className="text-slate-500">Review</p>
-                <p className="mt-1 font-semibold text-slate-900">{summary.reviewCount}</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-slate-500">
-              Latest transaction {summary.lastTransactionDate ? format(new Date(summary.lastTransactionDate), "EEE d MMM yyyy") : "not available"}
-            </p>
-          </Card>
-        ))}
-      </div>
 
       <Card>
         <form className="grid grid-cols-2 gap-3">

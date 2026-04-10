@@ -10,6 +10,7 @@ import {
   reapplyMerchantRulesToTransactions as reapplyMerchantRulesToTransactionsMock,
   resolvePendingTransaction as resolvePendingTransactionMock,
   saveAiSuggestions,
+  updateBudgetLevers as updateBudgetLeversMock,
   updateTransactionCategory,
 } from "@/lib/mock/store";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -441,6 +442,67 @@ export async function persistAiSuggestions(suggestions: AiSuggestion[]) {
     await Promise.all(updates);
   } catch {
     return null;
+  }
+
+  return true;
+}
+
+export async function updateBudgetLevers(input: {
+  fixedTarget: number;
+  groceriesTarget: number;
+  essentialVariableTarget: number;
+  lifestyleTarget: number;
+  oneOffTarget: number;
+  cycleTarget: number;
+}) {
+  if (appEnv.mockMode || !hasSupabaseEnv()) {
+    return updateBudgetLeversMock(input);
+  }
+
+  const snapshot = await getAppSnapshot();
+  const supabase = await createSupabaseServerClient();
+  const effectiveFrom = new Date().toISOString().slice(0, 10);
+
+  const { error: budgetError } = await supabase
+    .from("budgets")
+    .update({
+      cycle_target: input.cycleTarget,
+      fixed_target: input.fixedTarget,
+      groceries_target: input.groceriesTarget,
+      essential_variable_target: input.essentialVariableTarget,
+      lifestyle_target: input.lifestyleTarget,
+      one_off_target: input.oneOffTarget,
+      effective_from: effectiveFrom,
+    })
+    .eq("id", snapshot.budget.id);
+
+  if (budgetError) {
+    const { error: fallbackInsertError } = await supabase.from("budgets").insert({
+      household_id: snapshot.household.id,
+      cycle_target: input.cycleTarget,
+      fixed_target: input.fixedTarget,
+      groceries_target: input.groceriesTarget,
+      essential_variable_target: input.essentialVariableTarget,
+      lifestyle_target: input.lifestyleTarget,
+      one_off_target: input.oneOffTarget,
+      effective_from: effectiveFrom,
+    });
+
+    if (fallbackInsertError) {
+      throw new Error(fallbackInsertError.message);
+    }
+  }
+
+  const { error: householdError } = await supabase
+    .from("households")
+    .update({
+      cycle_target: input.cycleTarget,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", snapshot.household.id);
+
+  if (householdError) {
+    throw new Error(householdError.message);
   }
 
   return true;

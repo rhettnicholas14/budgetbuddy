@@ -11,12 +11,12 @@ export function BottomNavShell() {
   }, []);
 
   if (!mounted) {
-    return <div className="h-[104px]" aria-hidden="true" />;
+    return <div data-mobile-nav-spacer="true" className="h-[104px] sm:hidden" aria-hidden="true" />;
   }
 
   return (
     <>
-      <div className="h-[104px]" aria-hidden="true" />
+      <div data-mobile-nav-spacer="true" className="h-[104px] sm:hidden" aria-hidden="true" />
       <BottomNav />
     </>
   );

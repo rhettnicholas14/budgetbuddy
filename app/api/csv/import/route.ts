@@ -21,9 +21,11 @@ export async function POST(request: Request) {
       totalRows: result.totalRows,
     });
   } catch (error) {
+    console.error("CSV import failed", error);
     return NextResponse.json(
       {
         message: error instanceof Error ? error.message : "CSV import failed.",
+        ...(process.env.NODE_ENV !== "production" && error instanceof Error ? { stack: error.stack } : {}),
       },
       { status: 500 },
     );

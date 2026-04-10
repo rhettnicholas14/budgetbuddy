@@ -12,7 +12,6 @@ import { getAiSuggestions } from "@/lib/ai/finance-assistant";
 import { getAppSnapshot, persistAiSuggestions } from "@/lib/app-data";
 import { categories } from "@/lib/domain/categories";
 import { formatPreciseCurrency } from "@/lib/domain/format";
-import { buildReviewDuplicateMatches } from "@/lib/domain/selectors";
 import type { Transaction } from "@/lib/domain/types";
 
 export default async function ReviewPage({
@@ -24,10 +23,10 @@ export default async function ReviewPage({
   const params = await searchParams;
   const status = String(params.status ?? "");
   const transactionMap = new Map(snapshot.transactions.map((transaction) => [transaction.id, transaction]));
-  const duplicateMatchMap = buildReviewDuplicateMatches(snapshot.transactions);
 
-  const duplicateQueue = snapshot.transactions.filter((transaction) => duplicateMatchMap.has(transaction.id));
-  const categoryQueue = snapshot.transactions.filter((transaction) => transaction.needsReview && !duplicateMatchMap.has(transaction.id));
+  const duplicateQueue = snapshot.transactions.filter((transaction) => transaction.pendingStatus === "matched");
+  const duplicateQueueIds = new Set(duplicateQueue.map((transaction) => transaction.id));
+  const categoryQueue = snapshot.transactions.filter((transaction) => transaction.needsReview && !duplicateQueueIds.has(transaction.id));
   const queueCount = duplicateQueue.length + categoryQueue.length;
 
   const aiSuggestions = await getAiSuggestions(snapshot, categoryQueue.slice(0, 8));
@@ -35,13 +34,28 @@ export default async function ReviewPage({
   const suggestionMap = new Map(aiSuggestions.map((suggestion) => [suggestion.transactionId, suggestion]));
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="mx-auto max-w-5xl space-y-5 pb-24 md:pb-8">
       <div className="space-y-2 px-1">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Review Queue</p>
         <h1 className="text-3xl font-bold leading-tight text-slate-950 sm:text-4xl">
           Review duplicates and uncertain categories.
         </h1>
         <p className="text-sm text-slate-600">{queueCount} transactions need attention.</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="rounded-2xl p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Total Queue</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">{queueCount}</p>
+        </Card>
+        <Card className="rounded-2xl p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700">Duplicate Checks</p>
+          <p className="mt-2 text-2xl font-bold text-rose-900">{duplicateQueue.length}</p>
+        </Card>
+        <Card className="rounded-2xl p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">Category Review</p>
+          <p className="mt-2 text-2xl font-bold text-amber-900">{categoryQueue.length}</p>
+        </Card>
       </div>
 
       <StatusBanner status={status} />
@@ -59,9 +73,9 @@ export default async function ReviewPage({
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">Duplicate Checks</p>
             <p className="mt-1 text-sm text-slate-600">Same merchant and amount within a 7-day window on the same account.</p>
           </div>
-          <div className="space-y-3">
+          <div className="grid gap-3 2xl:grid-cols-2">
             {duplicateQueue.map((transaction) => {
-              const duplicateMatchId = transaction.pendingMatchTransactionId ?? duplicateMatchMap.get(transaction.id) ?? null;
+              const duplicateMatchId = transaction.pendingMatchTransactionId ?? null;
               const pendingMatch = duplicateMatchId ? transactionMap.get(duplicateMatchId) : null;
 
               return (
@@ -82,7 +96,7 @@ export default async function ReviewPage({
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Category Review</p>
             <p className="mt-1 text-sm text-slate-600">Uncertain merchants, split merchants, and anything that still needs a category decision.</p>
           </div>
-          <div className="space-y-3">
+          <div className="grid gap-3 2xl:grid-cols-2">
             {categoryQueue.map((transaction) => (
               <CategoryCard
                 key={transaction.id}

@@ -276,3 +276,25 @@ export function saveAiSuggestions(suggestions: AiSuggestion[]) {
 
   return getDemoSnapshot();
 }
+
+export function updateBudgetLevers(input: {
+  fixedTarget: number;
+  groceriesTarget: number;
+  essentialVariableTarget: number;
+  lifestyleTarget: number;
+  oneOffTarget: number;
+  cycleTarget: number;
+}) {
+  const state = getState();
+
+  state.budget.fixedTarget = input.fixedTarget;
+  state.budget.groceriesTarget = input.groceriesTarget;
+  state.budget.essentialVariableTarget = input.essentialVariableTarget;
+  state.budget.lifestyleTarget = input.lifestyleTarget;
+  state.budget.oneOffTarget = input.oneOffTarget;
+  state.budget.cycleTarget = input.cycleTarget;
+  state.budget.effectiveFrom = new Date().toISOString();
+  state.household.cycleTarget = input.cycleTarget;
+
+  return getDemoSnapshot();
+}
